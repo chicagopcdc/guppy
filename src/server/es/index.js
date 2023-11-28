@@ -148,6 +148,80 @@ class ES {
     return totalData;
   }
 
+
+  /**
+   * TODO redo this using the search_after parameter: https://www.elastic.co/guide/en/elasticsearch/reference/current/paginate-search-results.html#search-after
+   * Fetch elastic search data using scroll API 
+   * See https://www.elastic.co/guide/en/elasticsearch/reference/current/search-request-scroll.html
+   * @param {string} esIndex
+   * @param {string} esType
+   * @param {Object} argument - arg object for filter, fields, and sort
+   */
+  async searchAfterQuery(esIndex, esType, {
+    filter,
+    fields,
+    sort,
+    from, 
+    size,
+  }) {
+    if (!esIndex || !esType) {
+      throw new CodedError(
+        400,
+        'Invalid es index or es type name',
+      );
+    }
+    const allESFields = _.flattenDeep(this.getESFields(esIndex).fields.map((f) => {
+      if (f.nestedProps) {
+        return processNestedFieldNames(f);
+      }
+      return f.name;
+    }));
+    const fieldsNotBelong = _.difference(fields, allESFields);
+    if (fieldsNotBelong.length > 0) {
+      throw new CodedError(
+        400,
+        `Invalid fields: "${fieldsNotBelong.join('", "')}"`,
+      );
+    }
+    const validatedQueryBody = filter ? { query: filter } : {};
+    log.debug('[ES.scrollQuery] scroll query body: ', JSON.stringify(validatedQueryBody, null, 4));
+
+    let currentBatch;
+    let scrollID;
+    let totalData = [];
+
+    // This is really ridiculous that ES's JS library has it, but we need to
+    // convert list of sort obj into comma separated strings to make it work
+    // see https://www.elastic.co/guide/en/elasticsearch/client/javascript-api/current/api-reference.html#_search
+    const sortStringList = sort && sort.map((item) => `${Object.keys(item)[0]}:${Object.values(item)[0]["order"]}`);
+
+    const res = await this.client.search({ // eslint-disable-line no-await-in-loop
+      index: esIndex,
+      body: validatedQueryBody,
+      scroll: '1m',
+      from: from,
+      size: size < SCROLL_PAGE_SIZE ? size : SCROLL_PAGE_SIZE,
+      _source: fields,
+      sort: sortStringList,
+    }).then((resp) => resp, (err) => {
+      log.error('[ES.query] error when query', err.message);
+      throw new Error(err.message);
+    });
+    currentBatch = res.body;
+    scrollID = currentBatch._scroll_id;
+    log.debug('[ES scrollQuery] get batch size = ', currentBatch.hits.hits.length);
+    totalData = totalData.concat(currentBatch.hits.hits.map((item) => item._source));
+    
+
+    log.debug('[ES scrollQuery] end scrolling');
+    await this.client.clearScroll({
+      scroll_id: scrollID,
+    });
+    log.debug('[ES scrollQuery] scroll cleaned');
+    return totalData;
+  }
+
+
   /**
    * Get mapping from ES with given index and type.
    * Return a Promise of an Object: { <field>: <type> }
@@ -542,9 +616,20 @@ class ES {
   }
 
   downloadData({
-    esIndex, esType, fields, filter, sort,
+    esIndex, esType, fields, filter, sort, from, size,
   }) {
     const esFilterObj = filter ? getFilterObj(this, esIndex, filter) : undefined;
+
+    if (from && size) {
+      return this.searchAfterQuery(esIndex, esType, {
+        filter: esFilterObj,
+        fields,
+        sort: getESSortBody(sort, this, esIndex),
+        from, 
+        size,
+      });
+    }
+
     return this.scrollQuery(esIndex, esType, {
       filter: esFilterObj,
       fields,

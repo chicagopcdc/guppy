@@ -8,9 +8,13 @@ import CodedError from './utils/error';
 
 const downloadRouter = async (req, res, next) => {
   const {
-    type, filter, sort, fields, accessibility,
+    type, filter, sort, fields, accessibility, from, size,
   } = req.body;
 
+  if (!from){
+    log.error("ERRRORRRRRRRR");
+  }
+  
   log.debug('[download] ', JSON.stringify(req.body, null, 4));
   const esIndexConfig = esInstance.getESIndexConfigByType(type);
   const tierAccessLevel = (config.tierAccessLevel
@@ -64,7 +68,7 @@ const downloadRouter = async (req, res, next) => {
         throw new Error(`Invalid TIER_ACCESS_LEVEL "${tierAccessLevel}"`);
     }
     const data = await esInstance.downloadData({
-      esIndex: esIndexConfig.index, esType: type, filter: appliedFilter, sort, fields,
+      esIndex: esIndexConfig.index, esType: type, filter: appliedFilter, sort, fields, from, size,
     });
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.send(data);
