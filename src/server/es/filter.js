@@ -260,14 +260,91 @@ const getFilterObj = (
   defaultAuthFilter = null,
   objPath = null,
 ) => {
-  if (!graphqlFilterObj
-    || typeof Object.keys(graphqlFilterObj)[0] === 'undefined') {
+
+  // Check for "undefined" and handle it
+  if (!graphqlFilterObj || typeof Object.keys(graphqlFilterObj)[0] === 'undefined') {
     if (!defaultAuthFilter) {
       return null;
     }
     return getFilterObj(esInstance, esIndex, defaultAuthFilter);
   }
   const topLevelOp = Object.keys(graphqlFilterObj)[0];
+
+  // Check for "exclude" and handle it
+  if (topLevelOp === "exclude") {
+    const excludedValues = graphqlFilterObj.exclude; // Extract the excluded values
+    const field = aggsField || 'consortium'; // Default value for field
+
+    // Check for nested exclusion (i.e., excluding values within nested fields)
+    if (objPath) {
+      // Handle dynamic inclusion and exclusion for nested fields
+      const nestedPath = objPath;  // For example: 'studies'
+
+      // Create the dynamic inclusion conditions
+      const inclusionConditions = [];
+      Object.keys(graphqlFilterObj).forEach((key) => {
+        if (key !== "exclude") {
+          inclusionConditions.push({
+            terms: {
+              [key]: graphqlFilterObj[key] // Dynamically handle inclusion for fields like "consortium"
+            }
+          });
+        }
+      });
+
+      // Create the dynamic exclusion for nested fields (e.g., studies.study_id)
+      const nestedExclusionConditions = Object.keys(excludedValues).map((nestedField) => {
+        return {
+          terms: {
+            [`${nestedPath}.${nestedField}`]: excludedValues[nestedField] // Dynamically apply exclusion to nested field
+          }
+        };
+      });
+
+      return {
+        "from": 0,
+        "size": 0,
+        "track_total_hits": true,
+        "query": {
+          "bool": {
+            "must": inclusionConditions, // Dynamically include conditions
+            "must_not": [
+              {
+                "nested": {
+                  "path": nestedPath,
+                  "query": {
+                    "bool": {
+                      "must": nestedExclusionConditions // Dynamically exclude nested values
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      };
+    } else {
+      // Handle exclusion for non-nested fields
+      return {
+        "from": 0,
+        "size": 0,
+        "track_total_hits": true,
+        "query": {
+          "bool": {
+            "must_not": [
+              {
+                "terms": {
+                  [field]: excludedValues // Exclude values for a non-nested field
+                }
+              }
+            ]
+          }
+        }
+      };
+    }
+  }
+
+
   let resultFilterObj = {};
   const topLevelOpLowerCase = topLevelOp.toLowerCase();
   if (topLevelOpLowerCase === 'and' || topLevelOpLowerCase === 'or') {
