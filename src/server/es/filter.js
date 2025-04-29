@@ -278,7 +278,7 @@ const getFilterObj = (
     // Check for nested exclusion (i.e., excluding values within nested fields)
     if (objPath) {
       // Handle dynamic inclusion and exclusion for nested fields
-      const nestedPath = objPath;  // For example: 'studies'
+      const nestedPath = objPath || 'studies'; // Default nested path to "studies" if not provided
 
       // Create the dynamic inclusion conditions
       const inclusionConditions = [];
@@ -290,13 +290,14 @@ const getFilterObj = (
             }
           });
         }
-      });
+        return conditions;
+      }, []);  // Default to empty array if no inclusion terms
 
       // Create the dynamic exclusion for nested fields (e.g., studies.study_id)
       const nestedExclusionConditions = Object.keys(excludedValues).map((nestedField) => {
         return {
           terms: {
-            [`${nestedPath}.${nestedField}`]: excludedValues[nestedField] // Dynamically apply exclusion to nested field
+            [`${nestedPath}.${nestedField}`]: excludedValues[nestedField] || [] // Fallback to empty array if no exclusion terms
           }
         };
       });
@@ -343,7 +344,6 @@ const getFilterObj = (
       };
     }
   }
-
 
   let resultFilterObj = {};
   const topLevelOpLowerCase = topLevelOp.toLowerCase();
