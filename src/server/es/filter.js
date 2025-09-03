@@ -236,6 +236,106 @@ const getESSearchFilterFragment = (esInstance, esIndex, fields, keyword) => {
   };
 };
 
+// Exclude query, where if at least one element in a list matches the exclude string the subject is not counted anymore
+const getFilterItemForStringExclude = (pField, value, path) => {
+  const field = (path !== null && path !== undefined) ? `${path}.${pField}` : pField;
+  // Check for null
+  if (!value || (Array.isArray(value) && value.length === 0)) {
+    return null;
+  }
+  // If we need to handle missingDataAlias for exclusion
+  if (config.esConfig.aggregationIncludeMissingData && value === config.esConfig.missingDataAlias) {
+    return {
+      bool: {
+        must_not: [
+          {
+            exists: {
+              field,
+            },
+          },
+        ],
+      },
+    };
+  }
+
+  // For exclusion, use terms query to exclude specific values
+  let exclusionQuery = {};
+
+  if (path) {
+    // Handle exclusion for nested fields (path provided)
+    exclusionQuery = {
+      nested: {
+        path: path,  // Use the correct nested path (e.g., 'studies')
+        query: {
+          bool: {
+            must_not: [
+              {
+                terms: {
+                  [`${path}.${field}`]: Array.isArray(value) ? value : [value],  // Exclude nested field values
+                },
+              },
+            ],
+          },
+        },
+      },
+    };
+  } else {
+    // Handle exclusion for non-nested fields (no path provided)
+    exclusionQuery = {
+      bool: {
+        must_not: [
+          {
+            terms: {
+              [field]: Array.isArray(value) ? value : [value],  // Exclude non-nested field values
+            },
+          },
+        ],
+      },
+    };
+  }
+
+  // Return the query
+  return exclusionQuery;
+};
+
+// Preprocess looking for exclusions.
+const preprocessExclusions = (filterObj) => {
+  const ops = ['AND', 'OR'];
+
+  for (const op of ops) {
+    if (filterObj[op] && Array.isArray(filterObj[op])) {
+      const fieldToValues = {};
+      const remaining = [];
+
+      filterObj[op].forEach((f) => {
+        const key = Object.keys(f)[0];
+        if (key === '!=') {
+          const field = Object.keys(f[key])[0];
+          const val = f[key][field];
+          if (!fieldToValues[field]) fieldToValues[field] = [];
+          fieldToValues[field].push(val);
+        } else {
+          remaining.push(preprocessExclusions(f)); // recursive for nesting
+        }
+      });
+
+      const merged = Object.entries(fieldToValues)
+        .filter(([, values]) => values.length > 0)
+        .map(([field, values]) => ({
+          excludeString: { [field]: values },
+        }));
+
+      if (merged.length === 0 && remaining.length === 0) {
+        return {};  // nothing left to merge
+      }
+
+      return { [op]: [...merged, ...remaining] };
+    }
+  }
+
+  return filterObj;
+};
+
 /**
  * This function transfer graphql filter arg to ES filter object
  * It first parse graphql filter object recursively from top to down,
@@ -260,6 +360,7 @@ const getFilterObj = (
   defaultAuthFilter = null,
   objPath = null,
 ) => {
+  // Check for null and undefined
   if (!graphqlFilterObj
     || typeof Object.keys(graphqlFilterObj)[0] === 'undefined') {
     if (!defaultAuthFilter) {
@@ -267,6 +368,9 @@ const getFilterObj = (
     }
     return getFilterObj(esInstance, esIndex, defaultAuthFilter);
   }
+  // Preprocess for exclusions
+  graphqlFilterObj = preprocessExclusions(graphqlFilterObj);
+  // Continue through graphqlFilterObj
   const topLevelOp = Object.keys(graphqlFilterObj)[0];
   let resultFilterObj = {};
   const topLevelOpLowerCase = topLevelOp.toLowerCase();
@@ -376,13 +480,19 @@ const getFilterObj = (
     }
   } else {
     const field = Object.keys(graphqlFilterObj[topLevelOp])[0];
+    const value = graphqlFilterObj[topLevelOp][field];
+    const numericOrTextType = getNumericTextType(esInstance, esIndex, field, objPath);
+
     if (aggsField === field && !filterSelf) {
       // if `filterSelf` flag is false, should not filter the target field itself,
       // instead, only apply an auth filter if exists
       return getFilterObj(esInstance, esIndex, defaultAuthFilter);
     }
-    const value = graphqlFilterObj[topLevelOp][field];
-    const numericOrTextType = getNumericTextType(esInstance, esIndex, field, objPath);
+    if (topLevelOpLowerCase === 'excludestring') {
+      const excludeFilter = getFilterItemForStringExclude(field, value, objPath);
+      return excludeFilter || { match_all: {} };  // fallback to match_all if null
+    }
+
     if (numericOrTextType === NumericTextTypeTypeEnum.ES_TEXT_TYPE) {
       resultFilterObj = getFilterItemForString(topLevelOp, field, value, objPath);
     } else if (numericOrTextType === NumericTextTypeTypeEnum.ES_NUMERIC_TYPE) {
@@ -394,6 +504,9 @@ const getFilterObj = (
         },
       });
     }
+  }
+  if (!resultFilterObj) {
+    return { match_all: {} };  // avoid returning null that breaks frontend filters
   }
   return resultFilterObj;
 };

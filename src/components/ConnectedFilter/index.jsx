@@ -208,17 +208,20 @@ class ConnectedFilter extends React.Component {
       const selectedTabsOptions = {};
       const unselectedTabsOptions = {};
       Object.keys(processedTabsOptions).forEach((opt) => {
-        if (!processedTabsOptions[`${opt}`].histogram.length) {
+        // Fixing null and empty values.
+        if (!processedTabsOptions[`${opt}`]?.histogram?.length) {
           if (!unselectedTabsOptions[`${opt}`]) {
             unselectedTabsOptions[`${opt}`] = {};
           }
           unselectedTabsOptions[`${opt}`].histogram = [];
           return;
         }
-        processedTabsOptions[`${opt}`].histogram.forEach((entry) => {
+        // Fixing null and empty values.
+        const histogram = processedTabsOptions[`${opt}`]?.histogram ?? [];
+        histogram.forEach((entry) => {
           if (filtersToDisplay[`${opt}`]
-          && filtersToDisplay[`${opt}`].selectedValues
-          && filtersToDisplay[`${opt}`].selectedValues.includes(entry.key)) {
+            && filtersToDisplay[`${opt}`].selectedValues
+            && filtersToDisplay[`${opt}`].selectedValues.includes(entry.key)) {
             if (!selectedTabsOptions[`${opt}`]) {
               selectedTabsOptions[`${opt}`] = {};
             }
@@ -379,13 +382,13 @@ ConnectedFilter.propTypes = {
 
 ConnectedFilter.defaultProps = {
   extraAggsFields: [],
-  onFilterChange: () => {},
-  onReceiveNewAggsData: () => {},
+  onFilterChange: () => { },
+  onReceiveNewAggsData: () => { },
   className: '',
   fieldMapping: [],
   tierAccessLimit: undefined,
   onProcessFilterAggsData: (data) => (data),
-  onUpdateAccessLevel: () => {},
+  onUpdateAccessLevel: () => { },
   adminAppliedPreFilters: {},
   lockedTooltipMessage: '',
   disabledTooltipMessage: '',
