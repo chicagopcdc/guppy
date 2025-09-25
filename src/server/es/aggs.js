@@ -1,14 +1,14 @@
-import { GraphQLError } from "graphql";
-import getFilterObj from "./filter";
-import extractNestedFilter from "./utils";
+import { GraphQLError } from 'graphql';
+import getFilterObj from './filter';
+import extractNestedFilter from './utils';
 import {
   AGGS_GLOBAL_STATS_NAME,
   AGGS_ITEM_STATS_NAME,
   AGGS_NESTED_QUERY_NAME,
   AGGS_QUERY_NAME,
-} from "./const";
-import config from "../config";
-import log from "../logger";
+} from './const';
+import config from '../config';
+import log from '../logger';
 
 const PAGE_SIZE = 10000;
 
@@ -96,26 +96,20 @@ const processResultsForNestedAgg = (nestedAggFields, item, resultObj) => {
  * @param {number} rangeStart - the range start
  * @param {number} rangeEnd - the range end
  */
-export const appendAdditionalRangeQuery = (
-  field,
-  nestedPath,
-  oldQuery,
-  rangeStart,
-  rangeEnd
-) => {
+export const appendAdditionalRangeQuery = (field, nestedPath, oldQuery, rangeStart, rangeEnd) => {
   const appendFilter = [];
   let updatedFieldName = field;
   if (nestedPath) {
     updatedFieldName = `${nestedPath}.${field}`;
   }
-  if (typeof rangeStart !== "undefined") {
+  if (typeof rangeStart !== 'undefined') {
     appendFilter.push({
       range: {
         [updatedFieldName]: { gte: rangeStart },
       },
     });
   }
-  if (typeof rangeEnd !== "undefined") {
+  if (typeof rangeEnd !== 'undefined') {
     appendFilter.push({
       range: {
         [updatedFieldName]: { lt: rangeEnd },
@@ -132,14 +126,12 @@ export const appendAdditionalRangeQuery = (
     if (nestedPath) {
       additionalRangeQuery = {
         bool: {
-          must: [
-            {
-              nested: {
-                path: nestedPath,
-                query: { ...additionalRangeQuery },
-              },
+          must: [{
+            nested: {
+              path: nestedPath,
+              query: { ...additionalRangeQuery },
             },
-          ],
+          }],
         },
       };
     }
@@ -148,21 +140,12 @@ export const appendAdditionalRangeQuery = (
     }
     if ((oldQuery.bool || {}).must) {
       if (!Array.isArray(oldQuery.bool.must)) {
-        log.debug(
-          `Invalid query filter found during processing: ${JSON.stringify(
-            oldQuery,
-            null,
-            2
-          )}`
-        );
-        throw new GraphQLError(
-          "Invalid query filter found, check debug logging",
-          {
-            extensions: {
-              code: "BAD_USER_INPUT",
-            },
-          }
-        );
+        log.debug(`Invalid query filter found during processing: ${JSON.stringify(oldQuery, null, 2)}`);
+        throw new GraphQLError('Invalid query filter found, check debug logging', {
+          extensions: {
+            code: 'BAD_USER_INPUT',
+          },
+        });
       } else {
         oldQuery.bool.must.push(additionalRangeQuery);
         return oldQuery;
@@ -194,7 +177,11 @@ export const appendAdditionalRangeQuery = (
  * @returns {min, max, sum, count, avg, key}
  */
 export const numericGlobalStats = async (
-  { esInstance, esIndex, esType },
+  {
+    esInstance,
+    esIndex,
+    esType,
+  },
   {
     filter,
     field,
@@ -204,27 +191,8 @@ export const numericGlobalStats = async (
     defaultAuthFilter,
     nestedAggFields,
     nestedPath,
-  }
+  },
 ) => {
-  console.log(
-    "numericGlobalStats called with:",
-    "filter:",
-    filter,
-    "field:",
-    field,
-    "rangeStart:",
-    rangeStart,
-    "rangeEnd:",
-    rangeEnd,
-    "filterSelf:",
-    filterSelf,
-    "defaultAuthFilter:",
-    defaultAuthFilter,
-    "nestedAggFields:",
-    nestedAggFields,
-    "nestedPath:",
-    nestedPath
-  );
   const queryBody = { size: 0 };
   if (!!filter || !!defaultAuthFilter) {
     queryBody.query = getFilterObj(
@@ -233,118 +201,51 @@ export const numericGlobalStats = async (
       filter,
       field,
       filterSelf,
-      defaultAuthFilter
+      defaultAuthFilter,
     );
   }
-  console.log("Initial queryBody:", JSON.stringify(queryBody, null, 2));
-  queryBody.query = appendAdditionalRangeQuery(
-    field,
-    nestedPath,
-    queryBody.query,
-    rangeStart,
-    rangeEnd
-  );
+  queryBody.query = appendAdditionalRangeQuery(field, nestedPath, queryBody.query, rangeStart, rangeEnd);
   let aggsObj = {
     [AGGS_GLOBAL_STATS_NAME]: {
       stats: {
-        field: nestedPath ? `${nestedPath}.${field}` : `${field}`,
+        field: (nestedPath) ? `${nestedPath}.${field}` : `${field}`,
       },
     },
   };
   if (nestedAggFields && nestedAggFields.termsFields) {
-    aggsObj = updateAggObjectForTermsFields(
-      nestedAggFields.termsFields,
-      aggsObj
-    );
+    aggsObj = updateAggObjectForTermsFields(nestedAggFields.termsFields, aggsObj);
   }
   if (nestedAggFields && nestedAggFields.missingFields) {
-    aggsObj = updateAggObjectForMissingFields(
-      nestedAggFields.missingFields,
-      aggsObj
-    );
+    aggsObj = updateAggObjectForMissingFields(nestedAggFields.missingFields, aggsObj);
   }
-
   if (nestedPath) {
-    // Check if we need to apply nested filtering for accurate stats
-    let nestedAggsFilterName;
-    let queryBodyNested;
-
-    if (!!filter || !!defaultAuthFilter) {
-      nestedAggsFilterName = `${field}NestedStatsFilter`;
-      queryBodyNested = extractNestedFilter(queryBody.query, nestedPath);
-    }
-
-    if (nestedAggsFilterName && queryBodyNested) {
-      // Apply nested filtering to get accurate min/max for filtered nested documents
-      queryBody.aggs = {
-        [AGGS_NESTED_QUERY_NAME]: {
-          nested: {
-            path: nestedPath,
-          },
-          aggs: {
-            [nestedAggsFilterName]: {
-              filter: {
-                ...queryBodyNested,
-              },
-              aggs: {
-                ...aggsObj,
-              },
-            },
-          },
+    queryBody.aggs = {
+      [AGGS_NESTED_QUERY_NAME]: {
+        nested: {
+          path: nestedPath,
         },
-      };
-    } else {
-      queryBody.aggs = {
-        [AGGS_NESTED_QUERY_NAME]: {
-          nested: {
-            path: nestedPath,
-          },
-          aggs: {
-            ...aggsObj,
-          },
+        aggs: {
+          ...aggsObj,
         },
-      };
-    }
+      },
+    };
   } else {
     queryBody.aggs = aggsObj;
   }
 
   const result = await esInstance.query(esIndex, esType, queryBody);
-  let resultStats;
-
-  if (nestedPath) {
-    // Check if we used nested filtering
-    const nestedAggsFilterName = `${field}NestedStatsFilter`;
-    const hasNestedFilter =
-      result.aggregations[AGGS_NESTED_QUERY_NAME] &&
-      result.aggregations[AGGS_NESTED_QUERY_NAME][nestedAggsFilterName];
-
-    if (hasNestedFilter) {
-      resultStats =
-        result.aggregations[AGGS_NESTED_QUERY_NAME][nestedAggsFilterName][
-          AGGS_GLOBAL_STATS_NAME
-        ];
-    } else {
-      resultStats =
-        result.aggregations[AGGS_NESTED_QUERY_NAME][AGGS_GLOBAL_STATS_NAME];
-    }
-  } else {
-    resultStats = result.aggregations[AGGS_GLOBAL_STATS_NAME];
-  }
-
+  let resultStats = (nestedPath)
+    ? result.aggregations[AGGS_NESTED_QUERY_NAME][AGGS_GLOBAL_STATS_NAME]
+    : result.aggregations[AGGS_GLOBAL_STATS_NAME];
   const range = [
-    typeof rangeStart === "undefined" ? resultStats.min : rangeStart,
-    typeof rangeEnd === "undefined" ? resultStats.max : rangeEnd,
+    typeof rangeStart === 'undefined' ? resultStats.min : rangeStart,
+    typeof rangeEnd === 'undefined' ? resultStats.max : rangeEnd,
   ];
   resultStats = {
     key: range,
     ...resultStats,
   };
-  resultStats = processResultsForNestedAgg(
-    nestedAggFields,
-    result.aggregations,
-    resultStats
-  );
+  resultStats = processResultsForNestedAgg(nestedAggFields, result.aggregations, resultStats);
   return resultStats;
 };
 
@@ -366,7 +267,11 @@ export const numericGlobalStats = async (
  * @param {object} param1.nestedPath - path info used by nested aggregation
  */
 export const numericHistogramWithFixedRangeStep = async (
-  { esInstance, esIndex, esType },
+  {
+    esInstance,
+    esIndex,
+    esType,
+  },
   {
     filter,
     field,
@@ -377,7 +282,7 @@ export const numericHistogramWithFixedRangeStep = async (
     defaultAuthFilter,
     nestedAggFields,
     nestedPath,
-  }
+  },
 ) => {
   const queryBody = { size: 0 };
   if (!!filter || !!defaultAuthFilter) {
@@ -388,37 +293,31 @@ export const numericHistogramWithFixedRangeStep = async (
       field,
       filterSelf,
       defaultAuthFilter,
-      nestedAggFields
+      nestedAggFields,
     );
   }
-  queryBody.query = appendAdditionalRangeQuery(
-    field,
-    nestedPath,
-    queryBody.query,
-    rangeStart,
-    rangeEnd
-  );
+  queryBody.query = appendAdditionalRangeQuery(field, nestedPath, queryBody.query, rangeStart, rangeEnd);
   const aggsObj = {
     [AGGS_GLOBAL_STATS_NAME]: {
       stats: {
-        field: nestedPath ? `${nestedPath}.${field}` : `${field}`,
+        field: (nestedPath) ? `${nestedPath}.${field}` : `${field}`,
       },
     },
   };
   aggsObj[AGGS_QUERY_NAME] = {
     histogram: {
-      field: nestedPath ? `${nestedPath}.${field}` : `${field}`,
+      field: (nestedPath) ? `${nestedPath}.${field}` : `${field}`,
       interval: rangeStep,
     },
     aggs: {
       [AGGS_ITEM_STATS_NAME]: {
         stats: {
-          field: nestedPath ? `${nestedPath}.${field}` : `${field}`,
+          field: (nestedPath) ? `${nestedPath}.${field}` : `${field}`,
         },
       },
     },
   };
-  if (typeof rangeStart !== "undefined") {
+  if (typeof rangeStart !== 'undefined') {
     let offset = rangeStart;
     while (offset - rangeStep > 0) {
       offset -= rangeStep;
@@ -428,57 +327,27 @@ export const numericHistogramWithFixedRangeStep = async (
   if (nestedAggFields && nestedAggFields.termsFields) {
     aggsObj[AGGS_QUERY_NAME].aggs = updateAggObjectForTermsFields(
       nestedAggFields.termsFields,
-      aggsObj[AGGS_QUERY_NAME].aggs
+      aggsObj[AGGS_QUERY_NAME].aggs,
     );
   }
   if (nestedAggFields && nestedAggFields.missingFields) {
     aggsObj[AGGS_QUERY_NAME].aggs = updateAggObjectForMissingFields(
       nestedAggFields.missingFields,
-      aggsObj[AGGS_QUERY_NAME].aggs
+      aggsObj[AGGS_QUERY_NAME].aggs,
     );
   }
 
   if (nestedPath) {
-    // Check if we need to apply nested filtering
-    let nestedAggsFilterName;
-    let queryBodyNested;
-
-    if (!!filter || !!defaultAuthFilter) {
-      nestedAggsFilterName = `${field}NestedHistogramFilter`;
-      queryBodyNested = extractNestedFilter(queryBody.query, nestedPath);
-    }
-
-    if (nestedAggsFilterName && queryBodyNested) {
-      // Apply nested filtering to histogram aggregation
-      queryBody.aggs = {
-        [AGGS_NESTED_QUERY_NAME]: {
-          nested: {
-            path: nestedPath,
-          },
-          aggs: {
-            [nestedAggsFilterName]: {
-              filter: {
-                ...queryBodyNested,
-              },
-              aggs: {
-                ...aggsObj,
-              },
-            },
-          },
+    queryBody.aggs = {
+      [AGGS_NESTED_QUERY_NAME]: {
+        nested: {
+          path: nestedPath,
         },
-      };
-    } else {
-      queryBody.aggs = {
-        [AGGS_NESTED_QUERY_NAME]: {
-          nested: {
-            path: nestedPath,
-          },
-          aggs: {
-            ...aggsObj,
-          },
+        aggs: {
+          ...aggsObj,
         },
-      };
-    }
+      },
+    };
   } else {
     queryBody.aggs = aggsObj;
   }
@@ -486,28 +355,9 @@ export const numericHistogramWithFixedRangeStep = async (
   const result = await esInstance.query(esIndex, esType, queryBody);
   const finalResults = [];
   let resultObj;
-
-  let resultBuckets;
-  if (nestedPath) {
-    console.log("ES result", result);
-    const nestedAggsFilterName = `${field}NestedHistogramFilter`;
-    const hasNestedFilter =
-      result.aggregations[AGGS_NESTED_QUERY_NAME] &&
-      result.aggregations[AGGS_NESTED_QUERY_NAME][nestedAggsFilterName];
-
-    if (hasNestedFilter) {
-      resultBuckets =
-        result.aggregations[AGGS_NESTED_QUERY_NAME][nestedAggsFilterName][
-          AGGS_QUERY_NAME
-        ].buckets;
-    } else {
-      resultBuckets =
-        result.aggregations[AGGS_NESTED_QUERY_NAME][AGGS_QUERY_NAME].buckets;
-    }
-  } else {
-    resultBuckets = result.aggregations[AGGS_QUERY_NAME].buckets;
-  }
-
+  const resultBuckets = (nestedPath)
+    ? result.aggregations[AGGS_NESTED_QUERY_NAME][AGGS_QUERY_NAME].buckets
+    : result.aggregations[AGGS_QUERY_NAME].buckets;
   resultBuckets.forEach((item) => {
     resultObj = processResultsForNestedAgg(nestedAggFields, item, resultObj);
     finalResults.push({
@@ -537,7 +387,11 @@ export const numericHistogramWithFixedRangeStep = async (
  * @param {object} param1.nestedPath - path info used by nested aggregation
  */
 export const numericHistogramWithFixedBinCount = async (
-  { esInstance, esIndex, esType },
+  {
+    esInstance,
+    esIndex,
+    esType,
+  },
   {
     filter,
     field,
@@ -548,7 +402,7 @@ export const numericHistogramWithFixedBinCount = async (
     defaultAuthFilter,
     nestedAggFields,
     nestedPath,
-  }
+  },
 ) => {
   const globalStats = await numericGlobalStats(
     {
@@ -565,11 +419,11 @@ export const numericHistogramWithFixedBinCount = async (
       defaultAuthFilter,
       nestedAggFields,
       nestedPath,
-    }
+    },
   );
   const { min, max } = globalStats;
-  const histogramStart = typeof rangeStart === "undefined" ? min : rangeStart;
-  const histogramEnd = typeof rangeEnd === "undefined" ? max + 1 : rangeEnd;
+  const histogramStart = typeof rangeStart === 'undefined' ? min : rangeStart;
+  const histogramEnd = typeof rangeEnd === 'undefined' ? (max + 1) : rangeEnd;
   const rangeStep = (histogramEnd - histogramStart) / binCount;
   return numericHistogramWithFixedRangeStep(
     {
@@ -587,7 +441,7 @@ export const numericHistogramWithFixedBinCount = async (
       defaultAuthFilter,
       nestedAggFields,
       nestedPath,
-    }
+    },
   );
 };
 
@@ -609,7 +463,11 @@ export const numericHistogramWithFixedBinCount = async (
  * @param {object} param1.nestedPath - path info used by nested aggregation
  */
 export const numericAggregation = async (
-  { esInstance, esIndex, esType },
+  {
+    esInstance,
+    esIndex,
+    esType,
+  },
   {
     filter,
     field,
@@ -621,43 +479,37 @@ export const numericAggregation = async (
     defaultAuthFilter,
     nestedAggFields,
     nestedPath,
-  }
+  },
 ) => {
   if (rangeStep <= 0) {
     throw new GraphQLError(`Invalid rangeStep ${rangeStep}`, {
       extensions: {
-        code: "BAD_USER_INPUT",
+        code: 'BAD_USER_INPUT',
       },
     });
   }
   if (rangeStart > rangeEnd) {
-    throw new GraphQLError(
-      `Invalid rangeStart (${rangeStep}) > rangeEnd (${rangeEnd})`,
-      {
-        extensions: {
-          code: "BAD_USER_INPUT",
-        },
-      }
-    );
+    throw new GraphQLError(`Invalid rangeStart (${rangeStep}) > rangeEnd (${rangeEnd})`, {
+      extensions: {
+        code: 'BAD_USER_INPUT',
+      },
+    });
   }
   if (binCount <= 0) {
     throw new GraphQLError(`Invalid binCount ${binCount}`, {
       extensions: {
-        code: "BAD_USER_INPUT",
+        code: 'BAD_USER_INPUT',
       },
     });
   }
-  if (typeof rangeStep !== "undefined" && typeof binCount !== "undefined") {
-    throw new GraphQLError(
-      'Invalid to set "rangeStep" and "binCount" at same time',
-      {
-        extensions: {
-          code: "BAD_USER_INPUT",
-        },
-      }
-    );
+  if (typeof rangeStep !== 'undefined' && typeof binCount !== 'undefined') {
+    throw new GraphQLError('Invalid to set "rangeStep" and "binCount" at same time', {
+      extensions: {
+        code: 'BAD_USER_INPUT',
+      },
+    });
   }
-  if (typeof rangeStep !== "undefined") {
+  if (typeof rangeStep !== 'undefined') {
     return numericHistogramWithFixedRangeStep(
       {
         esInstance,
@@ -676,10 +528,10 @@ export const numericAggregation = async (
         defaultAuthFilter,
         nestedAggFields,
         nestedPath,
-      }
+      },
     );
   }
-  if (typeof binCount !== "undefined") {
+  if (typeof binCount !== 'undefined') {
     return numericHistogramWithFixedBinCount(
       {
         esInstance,
@@ -696,7 +548,7 @@ export const numericAggregation = async (
         defaultAuthFilter,
         nestedAggFields,
         nestedPath,
-      }
+      },
     );
   }
   const result = await numericGlobalStats(
@@ -714,7 +566,7 @@ export const numericAggregation = async (
       defaultAuthFilter,
       nestedAggFields,
       nestedPath,
-    }
+    },
   );
   return [result];
 };
@@ -733,7 +585,11 @@ export const numericAggregation = async (
  * @param {object} param1.nestedPath - path info used by nested aggregation
  */
 export const textAggregation = async (
-  { esInstance, esIndex, esType },
+  {
+    esInstance,
+    esIndex,
+    esType,
+  },
   {
     filter,
     field,
@@ -744,7 +600,7 @@ export const textAggregation = async (
     isNumericField,
     filterNestedEntity,
     reverseNested,
-  }
+  },
 ) => {
   const queryBody = { size: 0 };
   if (!!filter || !!defaultAuthFilter) {
@@ -754,8 +610,8 @@ export const textAggregation = async (
       filter,
       field,
       filterSelf,
-      defaultAuthFilter
-    );
+      defaultAuthFilter,
+    );    
   }
 
   let missingAlias = {};
@@ -764,7 +620,7 @@ export const textAggregation = async (
   if (config.esConfig.aggregationIncludeMissingData && !isNumericField) {
     if (config.esConfig.missingDataVariables.includes(field)) {
       // missingAlias = { missing: config.esConfig.missingDataAlias };
-      missingAlias = { missing_bucket: true, order: "desc" };
+      missingAlias = { missing_bucket: true, order: 'desc' };
     }
   }
   const aggsName = `${field}Aggs`;
@@ -783,30 +639,29 @@ export const textAggregation = async (
       nestedAggsFilterName = `${field}NestedAggsFilter`;
     }
     if (reverseNested) {
-      reverseNestedQuery = { aggs: { subjectAggs: { reverse_nested: {} } } };
+      reverseNestedQuery = {"aggs":{"subjectAggs":{"reverse_nested":{}}}}
     }
 
     if (!!filter || !!defaultAuthFilter) {
       if (nestedAggsFilterName) {
-        queryBodyNested = extractNestedFilter(queryBody.query, nestedPath);
+        queryBodyNested = extractNestedFilter(
+          queryBody.query,
+          nestedPath
+        );
       }
+      
     }
   }
+  
 
   if (nestedAggFields && nestedAggFields.termsFields) {
     missingAlias = {};
-    aggsObj.aggs = updateAggObjectForTermsFields(
-      nestedAggFields.termsFields,
-      aggsObj.aggs
-    );
+    aggsObj.aggs = updateAggObjectForTermsFields(nestedAggFields.termsFields, aggsObj.aggs);
   }
 
   if (nestedAggFields && nestedAggFields.missingFields) {
     missingAlias = {};
-    aggsObj.aggs = updateAggObjectForMissingFields(
-      nestedAggFields.missingFields,
-      aggsObj.aggs
-    );
+    aggsObj.aggs = updateAggObjectForMissingFields(nestedAggFields.missingFields, aggsObj.aggs);
   }
 
   // build up ES query if is nested aggregation
@@ -820,7 +675,7 @@ export const textAggregation = async (
           aggs: {
             [nestedAggsFilterName]: {
               filter: {
-                ...queryBodyNested,
+                ...queryBodyNested
               },
               aggs: {
                 [aggsName]: {
@@ -829,9 +684,9 @@ export const textAggregation = async (
                     ...missingAlias,
                     size: PAGE_SIZE,
                   },
-                  ...reverseNestedQuery,
-                },
-              },
+                  ...reverseNestedQuery
+                }
+              }
             },
           },
         },
@@ -893,45 +748,36 @@ export const textAggregation = async (
 
     let resultBuckets;
     if (nestedAggsFilterName) {
-      resultBuckets =
-        result.aggregations[aggsNestedName][nestedAggsFilterName][aggsName]
-          .buckets;
+      resultBuckets = result.aggregations[aggsNestedName][nestedAggsFilterName][aggsName].buckets;
     } else {
-      resultBuckets = aggsNestedName
-        ? result.aggregations[aggsNestedName][aggsName].buckets
-        : result.aggregations[aggsName].buckets;
+      resultBuckets = (aggsNestedName) ? result.aggregations[aggsNestedName][aggsName].buckets : result.aggregations[aggsName].buckets;
     }
-
+    
     resultBuckets.forEach((item) => {
-      const resultObj = processResultsForNestedAgg(nestedAggFields, item, {});
+      const resultObj = processResultsForNestedAgg (nestedAggFields, item, {})
       if (nestedAggsFilterName) {
         finalResults.push({
           key: item.key,
-          count: reverseNested ? item["subjectAggs"].doc_count : item.doc_count,
+          count: (reverseNested) ? item["subjectAggs"].doc_count : item.doc_count,
         });
       } else {
         finalResults.push({
-          key: fieldNestedName ? item.key[fieldNestedName] : item.key[field],
+          key: (fieldNestedName)? item.key[fieldNestedName] : item.key[field],
           count: item.doc_count,
-          ...resultObj,
+          ...resultObj
         });
       }
-
+      
       resultSize += 1;
     });
 
     let afterKey;
     if (!nestedAggsFilterName) {
-      afterKey = aggsNestedName
-        ? result.aggregations[aggsNestedName][aggsName].after_key
-        : result.aggregations[aggsName].after_key;
+      afterKey = (aggsNestedName) ? result.aggregations[aggsNestedName][aggsName].after_key : result.aggregations[aggsName].after_key;
     }
-
-    if (typeof afterKey === "undefined") break;
-    aggsNestedName
-      ? (queryBody.aggs[aggsNestedName].aggs[aggsName].composite.after =
-          afterKey)
-      : (queryBody.aggs[aggsName].composite.after = afterKey);
+    
+    if (typeof afterKey === 'undefined') break;
+    (aggsNestedName) ? queryBody.aggs[aggsNestedName].aggs[aggsName].composite.after = afterKey : queryBody.aggs[aggsName].composite.after = afterKey;
   } while (resultSize === PAGE_SIZE);
   /* eslint-enable */
 
