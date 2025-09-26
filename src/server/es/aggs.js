@@ -230,23 +230,41 @@ export const numericGlobalStats = async (
 
     if (nestedAggsFilterName && queryBodyNested) {
       // Apply nested filtering to get accurate min/max for filtered nested documents
-      queryBody.aggs = {
-        [AGGS_NESTED_QUERY_NAME]: {
-          nested: {
-            path: nestedPath,
-          },
-          aggs: {
-            [nestedAggsFilterName]: {
-              filter: {
-                ...queryBodyNested,
-              },
-              aggs: {
-                ...aggsObj,
-              },
+      // Only add the filter aggregation if queryBodyNested is not a simple match_all
+      if (
+        queryBodyNested &&
+        !(Object.keys(queryBodyNested).length === 1 && queryBodyNested.match_all && Object.keys(queryBodyNested.match_all).length === 0)
+      ) {
+        queryBody.aggs = {
+          [AGGS_NESTED_QUERY_NAME]: {
+        nested: {
+          path: nestedPath,
+        },
+        aggs: {
+          [nestedAggsFilterName]: {
+            filter: {
+          ...queryBodyNested,
+            },
+            aggs: {
+          ...aggsObj,
             },
           },
         },
-      };
+          },
+        };
+      } else {
+        // fallback to normal nested aggregation if filter is match_all
+        queryBody.aggs = {
+          [AGGS_NESTED_QUERY_NAME]: {
+        nested: {
+          path: nestedPath,
+        },
+        aggs: {
+          ...aggsObj,
+        },
+          },
+        };
+      }
     } else {
       queryBody.aggs = {
         [AGGS_NESTED_QUERY_NAME]: {
@@ -262,7 +280,6 @@ export const numericGlobalStats = async (
   } else {
     queryBody.aggs = aggsObj;
   }
-
   const result = await esInstance.query(esIndex, esType, queryBody);
   let resultStats;
 
