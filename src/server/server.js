@@ -38,6 +38,7 @@ const startServer = async () => {
   const resolvers = getResolver(config.esConfig, esInstance);
   const schema = makeExecutableSchema({ typeDefs, resolvers });
   const schemaWithMiddleware = applyMiddleware(schema, ...middlewares);
+  schemaWithMiddleware.introspection = true;
   // create graphql server instance
   server = new ApolloServer({
     mocks: false,
