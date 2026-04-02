@@ -1,7 +1,7 @@
 import esInstance from './es/index';
 import { gitVersion, gitCommit } from './version';
 import log from './logger';
-import config from '../config';
+import config from './config';
 
 export const statusRouter = async (req, res, next) => {
   try {
