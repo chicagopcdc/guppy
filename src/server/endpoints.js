@@ -1,6 +1,7 @@
 import esInstance from './es/index';
 import { gitVersion, gitCommit } from './version';
 import log from './logger';
+import config from '../config';
 
 export const statusRouter = async (req, res, next) => {
   try {
@@ -20,65 +21,61 @@ export const versionRouter = async (req, res) => {
   return 0;
 };
 
+
+const getVersionNumber = (indexName) => {
+  const parts = indexName.split('_');
+  if (parts.length < 2) return null;
+
+  const version = parseInt(parts[1], 10);
+  return Number.isNaN(version) ? null : version;
+};
+
 export const versionData = async (req, res, next) => {
   try {
-    // const {
-    //   aliases,
-    // } = req.body;
-
-    // TODO extend to multiple indexes. Hardcoded to the main one for now. you can get the value from esconfig.indices.[{index}...] and return an array of data version. One for each tab instead of one for all of them.
-    const aliases = ["pcdc"]
+    const aliases = [...new Set(config.esConfig.indices.map(({ index }) => index))];
 
     const data = await esInstance.getAllESIndices();
     log.info('[_data_version] ', JSON.stringify(data, null, 4));
 
     var result = {}
 
-    if (typeof(data) != "undefined" && "statusCode" in data && data["statusCode"] == 200) {
-      if ("indices" in data) {
-        for (const [key, value] of Object.entries(data["indices"])) {
-          for (const alias of aliases){
-            if ("aliases" in value && alias in value["aliases"]){
-              if (!(alias in result)) {
-                result[alias] = key
-              }
-              else {
-                v_1 = result[alias].split('_')
-                v_2 = key.split('_')
-                if (v_1.length < 2 || v_2.length < 2) {
-                  //error
-                  console.log("ERROR: One of the ES index has a wrong name");
-                }
-                var v_1 = parseInt(v_1[1])
-                var v_2 = parseInt(v_2[1])
+    if (typeof(data) != "undefined" && "statusCode" in data && data["statusCode"] == 200 && "indices" in data) {
+      for (const [key, value] of Object.entries(data["indices"])) {
+        for (const alias of aliases){
+          if ("aliases" in value && alias in value["aliases"]){
+            if (!(alias in result)) {
+              result[alias] = key
+            }
+            else {
+              const currentVersion = getVersionNumber(result[alias]);
+              const candidateVersion = getVersionNumber(key);
 
-                if (v_2 > v_1) {
-                  result[alias] = key
-                } 
+              if (currentVersion === null || candidateVersion === null) {
+                log.error(
+                  `[guppy/_data_version] invalid ES index name format: current=${result[alias]}, candidate=${key}`,
+                );
+                continue;
+              }
+
+              if (candidateVersion > currentVersion) {
+                result[alias] = key;
               }
             }
           }
         }
-        // res.send(result);
-        // TODO also hardcoded. to change in the future. This is only to avoid changes in the frontend at the moment.
-        res.send(result["pcdc"]);
       }
+      // backward compatible behavior:
+      // if there is only one configured alias, return just its value
+      if (aliases.length === 1) {
+        return res.send(result[aliases[0]] || null);
+      }
+
+      // if multiple aliases are configured, return all of them
+      return res.send(result);
     }
-    // if (typeof(data) != "undefined" && "statusCode" in data && data["statusCode"] == 200) {
-    //   if ("indices" in data) {
-    //     for (const [key, value] of Object.entries(data["indices"])) {
-    //       const index_flag = key.indexOf("-array-config");
-    //       if (index_flag == -1) {
-    //         res.send(key);
-    //       }
-    //     }
-    //   }
-    // }
-    else {
-      console.log("ERROR: Something went wrong in selecting the data guppy/_data_version");
-    }
+    log.error('ERROR: Something went wrong in selecting the data guppy/_data_version');
+    return res.status(500).send('Failed to determine data version');
   } catch (err) {
-    next(err);
+    return next(err);
   }
-  return 0;
 };
