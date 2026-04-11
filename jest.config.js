@@ -2,6 +2,9 @@
 // https://jestjs.io/docs/en/configuration.html
 
 module.exports = {
+  // Limit crawling to src/ so compiled dist/ (which can mirror __mocks__/__tests__) does not duplicate manual mocks.
+  roots: ['<rootDir>/src'],
+
   // All imported modules in your tests should be mocked automatically
   // automock: false,
 

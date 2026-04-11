@@ -17,8 +17,6 @@ const mockNestedAggs = () => {
                   'visits.visit_label': {
                     terms: {
                       field: 'visits.visit_label',
-                      missing_bucket: true,
-                      order: 'desc',
                     },
                   },
                 },

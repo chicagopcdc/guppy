@@ -12,8 +12,6 @@ const mockTextAggs = () => {
               gender: {
                 terms: {
                   field: 'gender',
-                  missing_bucket: true,
-                  order: 'desc',
                 },
               },
             },
@@ -80,8 +78,6 @@ const mockTextAggs = () => {
               gender: {
                 terms: {
                   field: 'gender',
-                  missing_bucket: true,
-                  order: 'desc',
                 },
               },
             },
@@ -142,8 +138,6 @@ const mockTextAggs = () => {
               gender: {
                 terms: {
                   field: 'gender',
-                  missing_bucket: true,
-                  order: 'desc',
                 },
               },
             },

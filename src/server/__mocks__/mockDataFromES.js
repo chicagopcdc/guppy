@@ -34,8 +34,6 @@ const mockResourcePath = () => {
               gen3_resource_path: {
                 terms: {
                   field: 'gen3_resource_path',
-                  missing_bucket: true,
-                  order: 'desc',
                 },
               },
             },
@@ -106,8 +104,6 @@ const mockResourcePath = () => {
               gen3_resource_path: {
                 terms: {
                   field: 'gen3_resource_path',
-                  missing_bucket: true,
-                  order: 'desc',
                 },
               },
             },
@@ -163,8 +159,6 @@ const mockResourcePath = () => {
               gen3_resource_path: {
                 terms: {
                   field: 'gen3_resource_path',
-                  missing_bucket: true,
-                  order: 'desc',
                 },
               },
             },
@@ -206,6 +200,11 @@ const mockResourcePath = () => {
 };
 
 const mockArborist = () => {
+  nock(config.arboristEndpoint)
+    .persist()
+    .post('/auth/request')
+    .reply(200, { auth: false });
+
   nock(config.arboristEndpoint)
     .persist()
     .post('/auth/mapping')
