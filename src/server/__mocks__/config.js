@@ -15,6 +15,7 @@ const config = {
     authFilterField: 'gen3_resource_path',
     aggregationIncludeMissingData: true,
     missingDataAlias: 'no data',
+    missingDataVariables: [],
   },
 
   port: 3000,

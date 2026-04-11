@@ -1,5 +1,11 @@
 /* eslint-disable global-require,import/no-dynamic-require */
+
 jest.mock('../logger');
+
+/** Absolute path to a JSON fixture (must use ./ so require.resolve treats it as relative to this file). */
+function testConfigFixture(fileName) {
+  return require.resolve(`./testConfigFiles/${fileName}`);
+}
 
 describe('config', () => {
   const OLD_ENV = process.env;
@@ -41,8 +47,9 @@ describe('config', () => {
 
   test('should show error if invalid tier access level in guppy block', async () => {
     process.env.TIER_ACCESS_LEVEL = null;
-    const fileName = './testConfigFiles/test-invalid-index-scoped-tier-access.json';
-    process.env.GUPPY_CONFIG_FILEPATH = `${__dirname}/${fileName}`;
+    process.env.GUPPY_CONFIG_FILEPATH = testConfigFixture(
+      'test-invalid-index-scoped-tier-access.json',
+    );
     const invalidItemType = 'subject_private';
     expect(() => require('../config')).toThrow(
       new Error(`tier_access_level invalid for index ${invalidItemType}.`),
@@ -52,10 +59,10 @@ describe('config', () => {
   test('clears out site-wide default tiered-access setting if index-scoped levels set', async () => {
     process.env.TIER_ACCESS_LEVEL = null;
     process.env.TIER_ACCESS_LIMIT = 50;
-    const fileName = './testConfigFiles/test-index-scoped-tier-access.json';
-    process.env.GUPPY_CONFIG_FILEPATH = `${__dirname}/${fileName}`;
+    const fixturePath = testConfigFixture('test-index-scoped-tier-access.json');
+    process.env.GUPPY_CONFIG_FILEPATH = fixturePath;
     const config = require('../config').default;
-    const { indices } = require(fileName);
+    const { indices } = require(fixturePath);
     expect(config.tierAccessLevel).toBeUndefined();
     expect(config.tierAccessLimit).toEqual(50);
     expect(JSON.stringify(config.esConfig.indices)).toEqual(
@@ -71,42 +78,46 @@ describe('config', () => {
   });
 
   test('could read list of string into whitelist', async () => {
-    const fileName = './testConfigFiles/test-whitelist.json';
-    process.env.GUPPY_CONFIG_FILEPATH = `${__dirname}/${fileName}`;
+    const fixturePath = testConfigFixture('test-whitelist.json');
+    process.env.GUPPY_CONFIG_FILEPATH = fixturePath;
     const config = require('../config').default;
-    const whitelist = require(fileName).encrypt_whitelist;
+    const whitelist = require(fixturePath).encrypt_whitelist;
     expect(config.enableEncryptWhiteList).toBe(true);
     expect(config.encryptWhitelist).toEqual(whitelist);
   });
 
   test('could read string as whitelist', async () => {
-    const fileName = './testConfigFiles/test-whitelist-string.json';
-    process.env.GUPPY_CONFIG_FILEPATH = `${__dirname}/${fileName}`;
+    const fixturePath = testConfigFixture('test-whitelist-string.json');
+    process.env.GUPPY_CONFIG_FILEPATH = fixturePath;
     const config = require('../config').default;
-    const whitelist = require(fileName).encrypt_whitelist;
+    const whitelist = require(fixturePath).encrypt_whitelist;
     expect(config.enableEncryptWhiteList).toBe(true);
     expect(config.encryptWhitelist).toEqual([whitelist]);
   });
 
   /* --------------- For missing data --------------- */
   test('could exclude missing data for aggregation', async () => {
-    process.env.GUPPY_CONFIG_FILEPATH = `${__dirname}/testConfigFiles/test-no-missing-data.json`;
+    process.env.GUPPY_CONFIG_FILEPATH = testConfigFixture(
+      'test-no-missing-data.json',
+    );
     const config = require('../config').default;
     expect(config.esConfig.aggregationIncludeMissingData).toBe(false);
   });
 
   test('could include and alias missing data for aggregation', async () => {
-    const fileName = './testConfigFiles/test-missing-data.json';
-    process.env.GUPPY_CONFIG_FILEPATH = `${__dirname}/${fileName}`;
+    const fixturePath = testConfigFixture('test-missing-data.json');
+    process.env.GUPPY_CONFIG_FILEPATH = fixturePath;
     const config = require('../config').default;
-    const alias = require(fileName).missing_data_alias;
+    const alias = require(fixturePath).missing_data_alias;
     expect(config.esConfig.aggregationIncludeMissingData).toBe(true);
     expect(config.esConfig.missingDataAlias).toEqual(alias);
   });
 
   /* --------------- For _refresh testing --------------- */
   test('could not access _refresh method if not in config', async () => {
-    process.env.GUPPY_CONFIG_FILEPATH = `${__dirname}/testConfigFiles/test-no-refresh-option-provided.json`;
+    process.env.GUPPY_CONFIG_FILEPATH = testConfigFixture(
+      'test-no-refresh-option-provided.json',
+    );
     const config = require('../config').default;
     expect(config.allowRefresh).toBe(false);
   });
