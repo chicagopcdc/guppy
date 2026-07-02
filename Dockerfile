@@ -1,4 +1,4 @@
-FROM quay.io/cdis/nodejs-base:master
+FROM quay.io/cdis/amazonlinux-base:nodejs24-base
 
 COPY . /guppy/
 WORKDIR /guppy
