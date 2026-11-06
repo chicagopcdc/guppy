@@ -1,41 +1,44 @@
 import getAuthHelperInstance from './auth/authHelper';
 import headerParser from './utils/headerParser';
+import { validSignature } from './utils/utils';
 import esInstance from './es/index';
 import log from './logger';
 import config from './config';
 import CodedError from './utils/error';
 
 const downloadRouter = async (req, res, next) => {
-  const {
-    type, filter, sort, fields, accessibility,
-  } = req.body;
-
-  log.debug('[download] ', JSON.stringify(req.body, null, 4));
-  const esIndexConfig = esInstance.getESIndexConfigByType(type);
-  const tierAccessLevel = (config.tierAccessLevel
-    ? config.tierAccessLevel : esIndexConfig.tier_access_level);
-  const jwt = headerParser.parseJWT(req);
-  const authHelper = await getAuthHelperInstance(jwt);
-
   try {
+    log.debug('[download] ', JSON.stringify(req.body, null, 4));
+    const {
+      type, filter, sort, fields, accessibility,
+    } = req.body;
+
+    const esIndexConfig = esInstance.getESIndexConfigByType(type);
+    const tierAccessLevel = config.tierAccessLevel
+      ? config.tierAccessLevel
+      : esIndexConfig.tier_access_level;
+    const jwt = headerParser.parseJWT(req);
+    const authHelper = await getAuthHelperInstance(jwt);
+    const isValid = validSignature(req) || authHelper.isAdmin();
+
     let appliedFilter;
     /**
      * Tier access strategy for download endpoint:
      * 1. if the data commons or the index is private, add auth filter layer onto filter
-     * 2. if the data commons or the index is regular:
+     * 2. if the data commons or the index is regular or granular:
      *   a. if request contains out-of-access resource, return 401
      *   b. if request contains only accessible resouces, return response
      * 3. if the data commons or the index is libre, always return reponse without any auth check
      */
     switch (tierAccessLevel) {
       case 'private': {
-        appliedFilter = authHelper.applyAccessibleFilter(filter);
+        appliedFilter = authHelper.applyAccessibleFilter(filter, isValid);
         break;
       }
-      case 'regular': {
-        log.debug('[download] regular commons');
+      case 'regular':
+      case 'granular': {
         if (accessibility === 'accessible') {
-          appliedFilter = authHelper.applyAccessibleFilter(filter);
+          appliedFilter = authHelper.applyAccessibleFilter(filter, isValid);
         } else {
           const outOfScopeResourceList = await authHelper.getOutOfScopeResourceList(
             esIndexConfig.index,
@@ -60,16 +63,21 @@ const downloadRouter = async (req, res, next) => {
       default:
         throw new Error(`Invalid TIER_ACCESS_LEVEL "${tierAccessLevel}"`);
     }
+
     const data = await esInstance.downloadData({
-      esIndex: esIndexConfig.index, esType: type, filter: appliedFilter, sort, fields,
+      esIndex: esIndexConfig.index,
+      esType: type,
+      filter: appliedFilter,
+      sort,
+      fields,
     });
+
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.send(data);
   } catch (err) {
     log.error(err);
     next(err);
   }
-  return 0;
 };
 
 export default downloadRouter;

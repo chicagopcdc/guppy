@@ -14,16 +14,23 @@ import config from './config';
 import log from './logger';
 import middlewares from './middlewares';
 import headerParser from './utils/headerParser';
+import { loadPublicKey } from './utils/utils';
 import getAuthHelperInstance from './auth/authHelper';
 import downloadRouter from './download';
 import CodedError from './utils/error';
-import { statusRouter, versionRouter } from './endpoints';
+import { statusRouter, versionRouter, versionData } from './endpoints';
 
 let server;
 const app = express();
 app.use(cors());
 app.use(helmet());
 app.use(bodyParser.json({ limit: '50mb' }));
+
+// Load public key
+app.locals.publicKey = loadPublicKey();
+if (app.locals.publicKey == null) {
+  log.error('[PUBLIC KEY] Failed loading public key.');
+}
 
 const startServer = async () => {
   // build schema and resolvers by parsing elastic search fields and types,
@@ -95,7 +102,7 @@ const refreshRouter = async (req, res, next) => {
 
 // simple health check endpoint
 // eslint-disable-next-line no-unused-vars
-app.get('/_status', statusRouter, (req, res, err, next) => {
+app.get('/_status', statusRouter, (err, req, res, next) => {
   if (err instanceof CodedError) {
     // deepcode ignore ServerLeak: no important information exists in error
     res.status(err.code).send(err.msg);
@@ -105,7 +112,20 @@ app.get('/_status', statusRouter, (req, res, err, next) => {
   }
 });
 
+
+// eslint-disable-next-line no-unused-vars
 app.get('/_version', versionRouter);
+
+
+// Get data index used
+app.get('/_data_version', versionData, (err, req, res, next) => { 
+  if (err instanceof CodedError) {
+    res.status(err.code).send(err.msg);
+  } else {
+    res.status(500).send(err);
+  }
+});
+
 
 // download endpoint for fetching data directly from es
 // eslint-disable-next-line no-unused-vars
@@ -118,6 +138,7 @@ app.post('/download', downloadRouter, (err, req, res, next) => {
     res.status(500).send(err);
   }
 });
+
 
 // eslint-disable-next-line no-unused-vars
 app.post('/_refresh', refreshRouter, (err, req, res, next) => {

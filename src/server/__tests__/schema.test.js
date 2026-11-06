@@ -164,6 +164,9 @@ describe('Schema', () => {
     histogram: [BucketsForNestedStringAgg],
     asTextHistogram: [BucketsForNestedStringAgg]
   }
+  type GranularAccessHistogramForString {
+    histogram: [BucketsForNestedStringAgg]
+  }
   type HistogramForNumber {
     _totalCount: Int,
     _cardinalityCount(precision_threshold:Int=3000): Int,
@@ -178,6 +181,15 @@ describe('Schema', () => {
   type RegularAccessHistogramForNumber {
     _totalCount: Int,
     _cardinalityCount(precision_threshold:Int=3000): Int,
+    histogram(
+      rangeStart: Int,
+      rangeEnd: Int,
+      rangeStep: Int,
+      binCount: Int,
+    ): [BucketsForNestedNumberAgg],
+    asTextHistogram: [BucketsForNestedStringAgg]
+  }
+  type GranularAccessHistogramForNumber {
     histogram(
       rangeStart: Int,
       rangeEnd: Int,

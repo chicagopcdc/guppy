@@ -34,6 +34,7 @@ const config = {
         ? true
         : inputConfig.aggs_include_missing_data,
     missingDataAlias: inputConfig.missing_data_alias || 'no data',
+    missingDataVariables: inputConfig.missing_data_variables || []
   },
   port: 80,
   path: '/graphql',
@@ -59,6 +60,13 @@ const config = {
   allowRefresh: inputConfig.allowRefresh || false,
 };
 
+let publicKey = '';
+if (process.env.PUBLIC_KEY_PATH) {
+  publicKey = readFileSync(process.env.PUBLIC_KEY_PATH).toString();
+  log.info('[config] read guppy public KEY: ', publicKey);
+  config.publicKey = publicKey;
+}
+
 if (process.env.GEN3_ES_ENDPOINT) {
   config.esConfig.host = process.env.GEN3_ES_ENDPOINT;
 }
@@ -74,7 +82,7 @@ if (process.env.GUPPY_PORT) {
   config.port = process.env.GUPPY_PORT;
 }
 
-const allowedTierAccessLevels = ['private', 'regular', 'libre'];
+const allowedTierAccessLevels = ['private', 'regular', 'granular', 'libre'];
 
 if (process.env.TIER_ACCESS_LEVEL) {
   if (!allowedTierAccessLevels.includes(process.env.TIER_ACCESS_LEVEL)) {

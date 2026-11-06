@@ -112,6 +112,10 @@ const textHistogramResolver = async (parent, args, context) => {
     filter, field, nestedAggFields, filterSelf, accessibility, nestedPath, isNumericField,
   } = parent;
   log.debug('[resolver.textHistogramResolver] parent', parent);
+  const {
+    filterNestedEntity,
+    reverseNested,
+  } = args;
   const { authHelper } = context;
   const defaultAuthFilter = await authHelper.getDefaultFilter(accessibility);
   return esInstance.textAggregation({
@@ -124,6 +128,8 @@ const textHistogramResolver = async (parent, args, context) => {
     nestedAggFields,
     nestedPath,
     isNumericField,
+    filterNestedEntity,
+    reverseNested,
   });
 };
 
@@ -312,6 +318,13 @@ const getResolver = (esConfig, esInstance) => {
       _cardinalityCount: cardinalityResolver,
       histogram: textHistogramResolver,
       asTextHistogram: textHistogramResolver,
+    },
+    GranularAccessHistogramForNumber: {
+      histogram: numericHistogramResolver,
+      asTextHistogram: textHistogramResolver,
+    },
+    GranularAccessHistogramForString: {
+      histogram: textHistogramResolver,
     },
     Mapping: {
       ...mappingResolvers,

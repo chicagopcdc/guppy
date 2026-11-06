@@ -16,7 +16,7 @@ const esgqlTypeMapping = {
   nested: 'Object',
 };
 
-const histogramTypePrefix = 'RegularAccess';
+const histogramTypePrefix = { regular: 'RegularAccess', granular: 'GranularAccess' };
 
 const getGQLType = (esInstance, esIndex, field, esFieldType, nestedFieldKeys = []) => {
   const gqlType = esgqlTypeMapping[esFieldType];
@@ -154,12 +154,12 @@ const getAggregationType = (entry) => {
 const getAggregationSchemaForOneIndex = (esInstance, esConfigElement) => {
   const esIndex = esConfigElement.index;
   const esType = esConfigElement.type;
-  const includeHistogramPrefix = Object.prototype.hasOwnProperty.call(esConfigElement, 'tier_access_level') && esConfigElement.tier_access_level === 'regular';
+  const includeHistogramPrefix = Object.prototype.hasOwnProperty.call(esConfigElement, 'tier_access_level') && ['regular', 'granular'].includes(esConfigElement.tier_access_level);
   const esTypeObjName = firstLetterUpperCase(esType);
   const fieldGQLTypeMap = getFieldGQLTypeMapForOneIndex(esInstance, esIndex);
   const fieldAggsTypeMap = fieldGQLTypeMap.filter((f) => f.esType !== 'nested').map((entry) => ({
     field: entry.field,
-    aggType: (includeHistogramPrefix ? histogramTypePrefix : '') + getAggsHistogramName(entry.type),
+    aggType: (includeHistogramPrefix ? histogramTypePrefix[esConfigElement.tier_access_level] : '') + getAggsHistogramName(entry.type),
   }));
   const fieldAggsNestedTypeMap = fieldGQLTypeMap.filter((f) => f.esType === 'nested');
   return `type ${esTypeObjName}Aggregation {
@@ -200,7 +200,7 @@ const getAggregationSchemaForOneNestedIndex = (esInstance, esDict) => {
   const esIndex = esDict.index;
   const fieldGQLTypeMap = getFieldGQLTypeMapForOneIndex(esInstance, esIndex);
   const fieldAggsNestedTypeMap = fieldGQLTypeMap.filter((f) => f.esType === 'nested');
-  const includeHistogramPrefix = Object.prototype.hasOwnProperty.call(esDict, 'tier_access_level') && esDict.tier_access_level === 'regular';
+  const includeHistogramPrefix = Object.prototype.hasOwnProperty.call(esDict, 'tier_access_level') && ['regular', 'granular'].includes(esDict.tier_access_level);
   let AggsNestedTypeSchema = '';
   while (fieldAggsNestedTypeMap.length > 0) {
     const entry = fieldAggsNestedTypeMap.shift();
@@ -216,7 +216,7 @@ const getAggregationSchemaForOneNestedIndex = (esInstance, esDict) => {
       ${propsKey}: NestedHistogramFor${firstLetterUpperCase(propsKey)}`;
         }
         return `
-    ${propsKey}: ${(includeHistogramPrefix ? histogramTypePrefix : '') + getAggsHistogramName(esgqlTypeMapping[entryType])}`;
+    ${propsKey}: ${(includeHistogramPrefix ? histogramTypePrefix[esDict.tier_access_level] : '') + getAggsHistogramName(esgqlTypeMapping[entryType])}`;
       })}
 }`;
     }
@@ -229,8 +229,8 @@ export const getAggregationSchemaForEachType = (esConfig, esInstance) => esConfi
 
 export const getAggregationSchemaForEachNestedType = (esConfig, esInstance) => esConfig.indices.map((cfg) => getAggregationSchemaForOneNestedIndex(esInstance, cfg)).join('\n');
 
-const getNumberHistogramSchema = (isRegularAccess) => `
-    type ${(isRegularAccess ? histogramTypePrefix : '') + EnumAggsHistogramName.HISTOGRAM_FOR_NUMBER} {
+const getNumberHistogramSchema = (accessType) => `
+    type ${(['regular', 'granular'].includes(accessType) ? histogramTypePrefix[accessType] : '') + EnumAggsHistogramName.HISTOGRAM_FOR_NUMBER} {
       _totalCount: Int,
       _cardinalityCount(precision_threshold: Int = 3000): Int,
       histogram(
@@ -243,11 +243,14 @@ const getNumberHistogramSchema = (isRegularAccess) => `
     }
   `;
 
-const getTextHistogramSchema = (isRegularAccess) => `
-    type ${(isRegularAccess ? histogramTypePrefix : '') + EnumAggsHistogramName.HISTOGRAM_FOR_STRING} {
+const getTextHistogramSchema = (accessType) => `
+    type ${(['regular', 'granular'].includes(accessType) ? histogramTypePrefix[accessType] : '') + EnumAggsHistogramName.HISTOGRAM_FOR_STRING} {
       _totalCount: Int,
       _cardinalityCount(precision_threshold: Int = 3000): Int,
-      histogram: [BucketsForNestedStringAgg],
+      histogram(
+        filterNestedEntity: Boolean=true,
+        reverseNested: Boolean=true,
+      ): [BucketsForNestedStringAgg],
       asTextHistogram: [BucketsForNestedStringAgg]
     }
   `;
@@ -261,15 +264,19 @@ export const getMappingSchema = (esConfig) => `
   `;
 
 export const getHistogramSchemas = () => {
-  const textHistogramSchema = getTextHistogramSchema(false);
+  const textHistogramSchema = getTextHistogramSchema('');
 
-  const regularAccessTextHistogramSchema = getTextHistogramSchema(true);
+  const regularAccessTextHistogramSchema = getTextHistogramSchema('regular');
 
-  const numberHistogramSchema = getNumberHistogramSchema(false);
+  const granularAccessTextHistogramSchema = getTextHistogramSchema('granular');
 
-  const regularAccessNumberHistogramSchema = getNumberHistogramSchema(true);
+  const numberHistogramSchema = getNumberHistogramSchema('');
 
-  const histogramSchemas = [textHistogramSchema, regularAccessTextHistogramSchema, numberHistogramSchema, regularAccessNumberHistogramSchema].join('\n');
+  const regularAccessNumberHistogramSchema = getNumberHistogramSchema('regular');
+
+  const granularAccessNumberHistogramSchema = getNumberHistogramSchema('granular');
+
+  const histogramSchemas = [textHistogramSchema, regularAccessTextHistogramSchema, granularAccessTextHistogramSchema, numberHistogramSchema, regularAccessNumberHistogramSchema, granularAccessNumberHistogramSchema].join('\n');
 
   return histogramSchemas;
 };

@@ -1,4 +1,4 @@
-FROM 707767160287.dkr.ecr.us-east-1.amazonaws.com/gen3/amazonlinux-base:nodejs24-base
+FROM quay.io/cdis/amazonlinux-base:nodejs24-base
 
 COPY . /guppy/
 WORKDIR /guppy
@@ -6,7 +6,7 @@ WORKDIR /guppy
 RUN COMMIT=`git rev-parse HEAD` && echo "export const gitCommit = \"${COMMIT}\";" >src/server/version.js
 RUN VERSION=`git describe --always --tags` && echo "export const gitVersion =\"${VERSION}\";" >>src/server/version.js
 RUN /bin/rm -rf .git
-RUN /bin/rm -rf node_modules
+# RUN /bin/rm -rf node_modules
 
 RUN chown -R gen3: /guppy
 # see https://superuser.com/questions/710253/allow-non-root-process-to-bind-to-port-80-and-443

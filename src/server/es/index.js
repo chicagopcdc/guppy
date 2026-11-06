@@ -58,7 +58,9 @@ class ES {
     return this.client.search({
       index: esIndex,
       body: validatedQueryBody,
-    }).then((resp) => resp.body, (err) => {
+    }).then((resp) => {
+      return resp.body;
+    }, (err) => {
       log.error(`[ES.query] error during querying: ${err.message}`);
       throw new Error(err.message);
     }).finally(() => {
@@ -111,7 +113,7 @@ class ES {
     // This is really ridiculous that ES's JS library has it, but we need to
     // convert list of sort obj into comma separated strings to make it work
     // see https://www.elastic.co/guide/en/elasticsearch/client/javascript-api/current/api-reference.html#_search
-    const sortStringList = sort && sort.map((item) => `${Object.keys(item)[0]}:${Object.values(item)[0]}`);
+    const sortStringList = sort && sort.map((item) => `${Object.keys(item)[0]}:${Object.values(item)[0]["order"]}`);
 
     while (!currentBatch || batchSize > 0) {
       if (typeof scrollID === 'undefined') { // first batch
@@ -231,6 +233,7 @@ class ES {
           const fields = doc._source.array;
           fields.forEach((field) => {
             const fieldArr = field.split('.');
+
             if (!(this.fieldTypes[index][field]
               || (
                 fieldArr.length > 1
@@ -244,6 +247,18 @@ class ES {
               log.error(errMsg);
               return;
             }
+
+            let nestedObject = this.fieldTypes[index];
+            for (let i = 0; i < fieldArr.length; i += 1) {
+              if (fieldArr[i] in nestedObject) {
+                nestedObject = nestedObject[fieldArr[i]].properties;
+              } else {
+                const errMsg = `[ES.initialize] wrong array entry from config: field "${field}" not found in index ${index}, skipped.`;
+                console.log(errMsg);
+                // break
+              }
+            }
+
             if (!arrayFields[index]) arrayFields[index] = [];
             arrayFields[index].push(field);
           });
@@ -399,7 +414,19 @@ class ES {
    * Check if the field is array
    */
   isArrayField(esIndex, field) {
-    return (this.arrayFields[esIndex] && this.arrayFields[esIndex].includes(field));
+    // TODO see where isArrayField gets the field from and pass the nested path with it to have a direct match and avoid limitation of using unique names
+
+    let isNestedArray = false;
+    if (this.arrayFields[esIndex]) {
+      for (let i = 0; i < this.arrayFields[esIndex].length; i += 1) {
+        const fieldArr = this.arrayFields[esIndex][i].split('.');
+        if (fieldArr[fieldArr.length - 1] == field) {
+          isNestedArray = true;
+        }
+      }
+    }
+
+    return (this.arrayFields[esIndex] && (this.arrayFields[esIndex].includes(field) || (isNestedArray)));
   }
 
   filterData(
@@ -583,6 +610,8 @@ class ES {
     nestedAggFields,
     nestedPath,
     isNumericField,
+    filterNestedEntity,
+    reverseNested,
   }) {
     return esAggregator.textAggregation(
       {
@@ -598,6 +627,8 @@ class ES {
         nestedAggFields,
         nestedPath,
         isNumericField,
+        filterNestedEntity,
+        reverseNested,
       },
     );
   }

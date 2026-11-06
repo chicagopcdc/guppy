@@ -1,5 +1,6 @@
 import { GraphQLError } from 'graphql';
 import getFilterObj from './filter';
+import extractNestedFilter from './utils';
 import {
   AGGS_GLOBAL_STATS_NAME,
   AGGS_ITEM_STATS_NAME,
@@ -218,24 +219,90 @@ export const numericGlobalStats = async (
     aggsObj = updateAggObjectForMissingFields(nestedAggFields.missingFields, aggsObj);
   }
   if (nestedPath) {
-    queryBody.aggs = {
-      [AGGS_NESTED_QUERY_NAME]: {
+    // Check if we need to apply nested filtering for accurate stats
+    let nestedAggsFilterName;
+    let queryBodyNested;
+
+    if (!!filter || !!defaultAuthFilter) {
+      nestedAggsFilterName = `${field}NestedStatsFilter`;
+      queryBodyNested = extractNestedFilter(queryBody.query, nestedPath);
+    }
+
+    if (nestedAggsFilterName && queryBodyNested) {
+      // Apply nested filtering to get accurate min/max for filtered nested documents
+      // Only add the filter aggregation if queryBodyNested is not a simple match_all
+      if (
+        queryBodyNested &&
+        !(Object.keys(queryBodyNested).length === 1 && queryBodyNested.match_all && Object.keys(queryBodyNested.match_all).length === 0)
+      ) {
+        queryBody.aggs = {
+          [AGGS_NESTED_QUERY_NAME]: {
+        nested: {
+          path: nestedPath,
+        },
+        aggs: {
+          [nestedAggsFilterName]: {
+            filter: {
+          ...queryBodyNested,
+            },
+            aggs: {
+          ...aggsObj,
+            },
+          },
+        },
+          },
+        };
+      } else {
+        // fallback to normal nested aggregation if filter is match_all
+        queryBody.aggs = {
+          [AGGS_NESTED_QUERY_NAME]: {
         nested: {
           path: nestedPath,
         },
         aggs: {
           ...aggsObj,
         },
-      },
-    };
+          },
+        };
+      }
+    } else {
+      queryBody.aggs = {
+        [AGGS_NESTED_QUERY_NAME]: {
+          nested: {
+            path: nestedPath,
+          },
+          aggs: {
+            ...aggsObj,
+          },
+        },
+      };
+    }
   } else {
     queryBody.aggs = aggsObj;
   }
-
   const result = await esInstance.query(esIndex, esType, queryBody);
-  let resultStats = (nestedPath)
-    ? result.aggregations[AGGS_NESTED_QUERY_NAME][AGGS_GLOBAL_STATS_NAME]
-    : result.aggregations[AGGS_GLOBAL_STATS_NAME];
+  let resultStats;
+
+  if (nestedPath) {
+    // Check if we used nested filtering
+    const nestedAggsFilterName = `${field}NestedStatsFilter`;
+    const hasNestedFilter =
+      result.aggregations[AGGS_NESTED_QUERY_NAME] &&
+      result.aggregations[AGGS_NESTED_QUERY_NAME][nestedAggsFilterName];
+
+    if (hasNestedFilter) {
+      resultStats =
+        result.aggregations[AGGS_NESTED_QUERY_NAME][nestedAggsFilterName][
+          AGGS_GLOBAL_STATS_NAME
+        ];
+    } else {
+      resultStats =
+        result.aggregations[AGGS_NESTED_QUERY_NAME][AGGS_GLOBAL_STATS_NAME];
+    }
+  } else {
+    resultStats = result.aggregations[AGGS_GLOBAL_STATS_NAME];
+  }
+  
   const range = [
     typeof rangeStart === 'undefined' ? resultStats.min : rangeStart,
     typeof rangeEnd === 'undefined' ? resultStats.max : rangeEnd,
@@ -597,6 +664,8 @@ export const textAggregation = async (
     nestedAggFields,
     nestedPath,
     isNumericField,
+    filterNestedEntity,
+    reverseNested,
   },
 ) => {
   const queryBody = { size: 0 };
@@ -608,23 +677,48 @@ export const textAggregation = async (
       field,
       filterSelf,
       defaultAuthFilter,
-    );
+    );    
   }
 
   let missingAlias = {};
   // don't add missing alias to numeric field by default
   // since the value of missing alias is a string
   if (config.esConfig.aggregationIncludeMissingData && !isNumericField) {
-    missingAlias = { missing_bucket: true, order: 'desc' };
+    if (config.esConfig.missingDataVariables.includes(field)) {
+      // missingAlias = { missing: config.esConfig.missingDataAlias };
+      missingAlias = { missing_bucket: true, order: 'desc' };
+    }
   }
   const aggsName = `${field}Aggs`;
   const aggsObj = {};
   let aggsNestedName;
   let fieldNestedName;
+  let nestedAggsFilterName;
+  let queryBodyNested;
+  let reverseNestedQuery = {};
+
   if (nestedPath) {
     aggsNestedName = `${field}NestedAggs`;
     fieldNestedName = `${nestedPath}.${field}`;
+
+    if (filterNestedEntity) {
+      nestedAggsFilterName = `${field}NestedAggsFilter`;
+    }
+    if (reverseNested) {
+      reverseNestedQuery = {"aggs":{"subjectAggs":{"reverse_nested":{}}}}
+    }
+
+    if (!!filter || !!defaultAuthFilter) {
+      if (nestedAggsFilterName) {
+        queryBodyNested = extractNestedFilter(
+          queryBody.query,
+          nestedPath
+        );
+      }
+      
+    }
   }
+  
 
   if (nestedAggFields && nestedAggFields.termsFields) {
     missingAlias = {};
@@ -638,31 +732,58 @@ export const textAggregation = async (
 
   // build up ES query if is nested aggregation
   if (aggsNestedName) {
-    queryBody.aggs = {
-      [aggsNestedName]: {
-        nested: {
-          path: nestedPath,
-        },
-        aggs: {
-          [aggsName]: {
-            composite: {
-              sources: [
-                {
-                  [fieldNestedName]: {
-                    terms: {
-                      field: fieldNestedName,
-                      ...missingAlias,
-                    },
+    if (nestedAggsFilterName) {
+      queryBody.aggs = {
+        [aggsNestedName]: {
+          nested: {
+            path: nestedPath,
+          },
+          aggs: {
+            [nestedAggsFilterName]: {
+              filter: {
+                ...queryBodyNested
+              },
+              aggs: {
+                [aggsName]: {
+                  terms: {
+                    field: fieldNestedName,
+                    ...missingAlias,
+                    size: PAGE_SIZE,
                   },
-                },
-              ],
-              size: PAGE_SIZE,
+                  ...reverseNestedQuery
+                }
+              }
             },
-            ...aggsObj,
           },
         },
-      },
-    };
+      };
+    } else {
+      queryBody.aggs = {
+        [aggsNestedName]: {
+          nested: {
+            path: nestedPath,
+          },
+          aggs: {
+            [aggsName]: {
+              composite: {
+                sources: [
+                  {
+                    [fieldNestedName]: {
+                      terms: {
+                        field: fieldNestedName,
+                        ...missingAlias,
+                      },
+                    },
+                  },
+                ],
+                size: PAGE_SIZE,
+              },
+              ...aggsObj,
+            },
+          },
+        },
+      };
+    }
   } else {
     queryBody.aggs = {
       [aggsName]: {
@@ -691,17 +812,36 @@ export const textAggregation = async (
     const result = await esInstance.query(esIndex, esType, queryBody);
     resultSize = 0;
 
-    const resultBuckets = (aggsNestedName) ? result.aggregations[aggsNestedName][aggsName].buckets : result.aggregations[aggsName].buckets;
+    let resultBuckets;
+    if (nestedAggsFilterName) {
+      resultBuckets = result.aggregations[aggsNestedName][nestedAggsFilterName][aggsName].buckets;
+    } else {
+      resultBuckets = (aggsNestedName) ? result.aggregations[aggsNestedName][aggsName].buckets : result.aggregations[aggsName].buckets;
+    }
+    
     resultBuckets.forEach((item) => {
       const resultObj = processResultsForNestedAgg (nestedAggFields, item, {})
-      finalResults.push({
-        key: (fieldNestedName)? item.key[fieldNestedName] : item.key[field],
-        count: item.doc_count,
-        ...resultObj
-      });
+      if (nestedAggsFilterName) {
+        finalResults.push({
+          key: item.key,
+          count: (reverseNested) ? item["subjectAggs"].doc_count : item.doc_count,
+        });
+      } else {
+        finalResults.push({
+          key: (fieldNestedName)? item.key[fieldNestedName] : item.key[field],
+          count: item.doc_count,
+          ...resultObj
+        });
+      }
+      
       resultSize += 1;
     });
-    const afterKey = (aggsNestedName) ? result.aggregations[aggsNestedName][aggsName].after_key : result.aggregations[aggsName].after_key;
+
+    let afterKey;
+    if (!nestedAggsFilterName) {
+      afterKey = (aggsNestedName) ? result.aggregations[aggsNestedName][aggsName].after_key : result.aggregations[aggsName].after_key;
+    }
+    
     if (typeof afterKey === 'undefined') break;
     (aggsNestedName) ? queryBody.aggs[aggsNestedName].aggs[aggsName].composite.after = afterKey : queryBody.aggs[aggsName].composite.after = afterKey;
   } while (resultSize === PAGE_SIZE);

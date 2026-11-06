@@ -46,6 +46,7 @@
     "graphql-type-json": "^0.3.2",
     "helmet": "^7.1.0",
     "isomorphic-fetch": "^3.0.0",
+    "jsrsasign": "^11.1.5",
     "lodash": "^4.18.1",
     "loglevel": "^1.9.2",
     "mime-types": "^3.0.0",
