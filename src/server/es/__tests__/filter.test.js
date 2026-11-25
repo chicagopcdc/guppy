@@ -547,3 +547,183 @@ describe('Transfer GraphQL filter to ES filter, with other params', () => {
     expect(resultESFilter).toEqual(expectedESFilter);
   });
 });
+
+describe('Transfer GraphQL filter to ES filter, leaf filters inside a "nested" filter', () => {
+  // The portal sends the full dotted field name (e.g. "visits.days_to_visit") for the leaf
+  // field of a nested filter, while guppy used to accept only the name relative to the nested
+  // path (e.g. "days_to_visit"). Both forms must produce the same ES filter.
+  const expectedNumericFilter = (gte) => ({
+    nested: {
+      path: 'visits',
+      query: {
+        range: { 'visits.days_to_visit': { gte } },
+      },
+    },
+  });
+
+  test('numeric range on a nested field, field relative to the nested path', async () => {
+    await esInstance.initialize();
+    const gqlFilter = { nested: { path: 'visits', '>=': { days_to_visit: 10 } } };
+    const resultESFilter = getFilterObj(esInstance, esIndex, gqlFilter);
+    expect(resultESFilter).toEqual(expectedNumericFilter(10));
+  });
+
+  test('numeric range on a nested field, full dotted field name', async () => {
+    await esInstance.initialize();
+    const gqlFilter = { nested: { path: 'visits', '>=': { 'visits.days_to_visit': 10 } } };
+    const resultESFilter = getFilterObj(esInstance, esIndex, gqlFilter);
+    expect(resultESFilter).toEqual(expectedNumericFilter(10));
+  });
+
+  test('text filter on a nested field, full dotted field name', async () => {
+    await esInstance.initialize();
+    const gqlFilter = { nested: { path: 'visits', '=': { 'visits.visit_label': 'Baseline' } } };
+    const resultESFilter = getFilterObj(esInstance, esIndex, gqlFilter);
+    expect(resultESFilter).toEqual({
+      nested: {
+        path: 'visits',
+        query: { term: { 'visits.visit_label': 'Baseline' } },
+      },
+    });
+  });
+
+  test('range ">=" and "<=" on a nested field, full dotted field name', async () => {
+    await esInstance.initialize();
+    const gqlFilter = {
+      nested: {
+        path: 'visits',
+        AND: [
+          { '>=': { 'visits.days_to_visit': 5 } },
+          { '<=': { 'visits.days_to_visit': 30 } },
+        ],
+      },
+    };
+    const resultESFilter = getFilterObj(esInstance, esIndex, gqlFilter);
+    expect(resultESFilter).toEqual({
+      nested: {
+        path: 'visits',
+        query: {
+          bool: {
+            must: [
+              { range: { 'visits.days_to_visit': { gte: 5, lte: 30 } } },
+            ],
+          },
+        },
+      },
+    });
+  });
+
+  test('numeric range on a doubly nested field, full dotted field name', async () => {
+    await esInstance.initialize();
+    const gqlFilter = {
+      nested: { path: 'visits.follow_ups', '>=': { 'visits.follow_ups.days_to_follow_up': 3 } },
+    };
+    const resultESFilter = getFilterObj(esInstance, esIndex, gqlFilter);
+    expect(resultESFilter).toEqual({
+      nested: {
+        path: 'visits.follow_ups',
+        query: { range: { 'visits.follow_ups.days_to_follow_up': { gte: 3 } } },
+      },
+    });
+  });
+
+  test('old data-portal shape: upper-case operators with fields relative to the nested path', async () => {
+    await esInstance.initialize();
+    const gqlFilter = {
+      AND: [
+        {
+          nested: {
+            path: 'visits',
+            AND: [
+              {
+                AND: [
+                  { GTE: { days_to_visit: 5 } },
+                  { LTE: { days_to_visit: 30 } },
+                ],
+              },
+            ],
+          },
+        },
+      ],
+    };
+    const resultESFilter = getFilterObj(esInstance, esIndex, gqlFilter);
+    expect(resultESFilter).toEqual({
+      bool: {
+        must: [
+          {
+            nested: {
+              path: 'visits',
+              query: {
+                bool: {
+                  must: [
+                    {
+                      bool: {
+                        must: [
+                          { range: { 'visits.days_to_visit': { gte: 5, lte: 30 } } },
+                        ],
+                      },
+                    },
+                  ],
+                },
+              },
+            },
+          },
+        ],
+      },
+    });
+  });
+
+  test('frontend-framework shape: top-level filter combined with a nested range on dotted fields', async () => {
+    await esInstance.initialize();
+    const gqlFilter = {
+      and: [
+        { in: { gender: ['female', 'male'] } },
+        {
+          nested: {
+            path: 'visits',
+            and: [
+              { '>=': { 'visits.days_to_visit': 2 } },
+              { '<=': { 'visits.days_to_visit': 106 } },
+            ],
+          },
+        },
+      ],
+    };
+    const resultESFilter = getFilterObj(esInstance, esIndex, gqlFilter);
+    expect(resultESFilter).toEqual({
+      bool: {
+        must: [
+          { terms: { gender: ['female', 'male'] } },
+          {
+            nested: {
+              path: 'visits',
+              query: {
+                bool: {
+                  must: [
+                    { range: { 'visits.days_to_visit': { gte: 2, lte: 106 } } },
+                  ],
+                },
+              },
+            },
+          },
+        ],
+      },
+    });
+  });
+
+  test('still throws for a nonexistent field given with the full dotted name', async () => {
+    await esInstance.initialize();
+    const gqlFilter = { nested: { path: 'visits', '>=': { 'visits.no_such_field': 1 } } };
+    expect(() => getFilterObj(esInstance, esIndex, gqlFilter)).toThrow(GraphQLError);
+  });
+
+  test('could skip the aggregated nested field if filterSelf=false, full dotted field name', async () => {
+    await esInstance.initialize();
+    const gqlFilter = {
+      nested: { path: 'visits', '>=': { 'visits.days_to_visit': 10 } },
+    };
+    // aggregation field given as dotted or relative to the nested path
+    expect(getFilterObj(esInstance, esIndex, gqlFilter, 'visits.days_to_visit', false)).toBeNull();
+    expect(getFilterObj(esInstance, esIndex, gqlFilter, 'days_to_visit', false)).toBeNull();
+  });
+});

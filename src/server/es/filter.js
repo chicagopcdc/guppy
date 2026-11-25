@@ -399,13 +399,18 @@ const getFilterObj = (
       resultFilterObj = null;
     }
   } else {
-    const field = Object.keys(graphqlFilterObj[topLevelOp])[0];
-    if (aggsField === field && !filterSelf) {
+    const rawField = Object.keys(graphqlFilterObj[topLevelOp])[0];
+    // Inside a "nested" filter, accept the field either relative to the nested path
+    // (e.g. "days_to_visit") or as the full dotted name (e.g. "visits.days_to_visit").
+    const field = objPath && rawField.startsWith(`${objPath}.`)
+      ? rawField.slice(objPath.length + 1)
+      : rawField;
+    if ((aggsField === field || aggsField === rawField) && !filterSelf) {
       // if `filterSelf` flag is false, should not filter the target field itself,
       // instead, only apply an auth filter if exists
       return getFilterObj(esInstance, esIndex, defaultAuthFilter);
     }
-    const value = graphqlFilterObj[topLevelOp][field];
+    const value = graphqlFilterObj[topLevelOp][rawField];
     const numericOrTextType = getNumericTextType(esInstance, esIndex, field, objPath);
     if (numericOrTextType === NumericTextTypeTypeEnum.ES_TEXT_TYPE) {
       resultFilterObj = getFilterItemForString(topLevelOp, field, value, objPath);
